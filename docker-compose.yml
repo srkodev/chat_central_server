@@ -1,0 +1,99 @@
+version: '3.8'
+services:
+  db:
+    image: mariadb:latest
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=chat
+      - MYSQL_USER=chat_user
+      - MYSQL_PASSWORD=chat_user
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat_network
+
+  mongo:
+    image: mongo:latest
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    command: ["mongod", "--bind_ip_all"]
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat_network
+
+  users:
+    build: ./users-service
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - JWT_SECRET=inCicePrG4p-mdqVLlfZN6CN-J5FoPPGknZdH8CElDb2Hz1YMwmTYPlY8URBHekz
+      - DB_HOST=db
+      - DB_USER=chat_user
+      - DB_PASSWORD=chat_user
+      - DB_NAME=chat
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - chat_network
+    restart: unless-stopped
+
+  messages:
+    build: ./messages-service
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - JWT_SECRET=inCicePrG4p-mdqVLlfZN6CN-J5FoPPGknZdH8CElDb2Hz1YMwmTYPlY8URBHekz
+      - MONGO_URI=mongodb://mongo:27017/chat_messages
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - chat_network
+    restart: unless-stopped
+
+  turn:
+    image: instrumentisto/coturn
+    restart: always
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49152-49160:49152-49160/udp"
+      - "49152-49160:49152-49160/tcp"
+    environment:
+      - TURN_REALM=localhost
+      - TURN_USER=username:password
+      - TURN_LISTENING_PORT=3478
+      - TURN_MIN_PORT=49152
+      - TURN_MAX_PORT=49160
+    networks:
+      - chat_network
+
+networks:
+  chat_network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  db_data:
+  mongo_data:
